@@ -1724,8 +1724,8 @@ const htmlTemplate = `<!DOCTYPE html>
 
     // Supabase API Configuration (saved in localStorage or via Cloud Sync button)
     const SUPABASE_CONFIG = {
-      url: window.localStorage.getItem('toppersmock_supabase_url') || '',
-      anonKey: window.localStorage.getItem('toppersmock_supabase_key') || ''
+      url: window.localStorage.getItem('toppersmock_supabase_url') || 'https://usgoulvpgayviixalmkd.supabase.co',
+      anonKey: window.localStorage.getItem('toppersmock_supabase_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVzZ291bHZwZ2F5dmlpeGFsbWtkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExODcwMjgsImV4cCI6MjEwNjc2MzAyOH0.ARy4m7wlO37fEjQFGuWQQ3kRcePbZNXOaF-UW-Bq1kE'
     };
     const examStartTime = new Date();
 
@@ -2287,7 +2287,8 @@ const htmlTemplate = `<!DOCTYPE html>
         return;
       }
       try {
-        const cleanUrl = SUPABASE_CONFIG.url.replace(/\\/$/, '');
+        const rawUrl = SUPABASE_CONFIG.url.trim();
+        const cleanUrl = rawUrl.endsWith('/') ? rawUrl.slice(0, -1) : rawUrl;
         const res = await fetch(\`\${cleanUrl}/rest/v1/test_attempts\`, {
           method: 'POST',
           headers: {
@@ -2301,6 +2302,35 @@ const htmlTemplate = `<!DOCTYPE html>
         if (res.ok) {
           const data = await res.json();
           console.log('✓ Successfully recorded test attempt to Supabase:', data);
+          const attemptId = data && data[0] ? data[0].id : null;
+          if (attemptId) {
+            const answersBatch = userAnswers.map((ans, qIdx) => {
+              const q = QUESTIONS[qIdx];
+              const isCorrect = ans.selectedOption && (ans.selectedOption.toLowerCase() === q.correct_option.toLowerCase());
+              return {
+                attempt_id: attemptId,
+                question_number: q.question_number,
+                section_name: q.section_title,
+                selected_option: ans.selectedOption,
+                correct_option: q.correct_option,
+                is_correct: isCorrect,
+                marks_awarded: isCorrect ? 2.00 : (ans.selectedOption ? -0.50 : 0.00),
+                status: ans.status,
+                time_spent_seconds: ans.timeSpent,
+                timestamp: new Date().toISOString()
+              };
+            });
+            await fetch(\`\${cleanUrl}/rest/v1/test_attempt_answers\`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': \`Bearer \${SUPABASE_CONFIG.anonKey}\`
+              },
+              body: JSON.stringify(answersBatch)
+            });
+            console.log('✓ Detailed question answers recorded to Supabase.');
+          }
         } else {
           const err = await res.text();
           console.error('Supabase save error:', res.status, err);
