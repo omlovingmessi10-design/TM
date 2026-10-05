@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS public.test_attempts (
     
     -- Timestamps
     time_taken_seconds INTEGER NOT NULL DEFAULT 0,
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     started_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     submitted_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
@@ -50,6 +51,9 @@ CREATE TABLE IF NOT EXISTS public.test_attempts (
     client_ip TEXT,
     user_agent TEXT
 );
+
+-- Ensure timestamp column exists if table was created previously
+ALTER TABLE public.test_attempts ADD COLUMN IF NOT EXISTS "timestamp" TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
 
 -- ==============================================================================
 -- Table: test_attempt_answers (Optional Detailed Question Log)

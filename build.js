@@ -2264,6 +2264,7 @@ const htmlTemplate = `<!DOCTYPE html>
         total_score: parseFloat(totalScore.toFixed(2)),
         accuracy_percentage: accuracy,
         time_taken_seconds: TOTAL_TIME - timeRemaining,
+        timestamp: new Date().toISOString(),
         started_at: examStartTime.toISOString(),
         submitted_at: new Date().toISOString(),
         section_breakdown: sectionResults.map(sr => ({
@@ -2289,7 +2290,7 @@ const htmlTemplate = `<!DOCTYPE html>
       try {
         const rawUrl = SUPABASE_CONFIG.url.trim();
         const cleanUrl = rawUrl.endsWith('/') ? rawUrl.slice(0, -1) : rawUrl;
-        const res = await fetch(\`\${cleanUrl}/rest/v1/test_attempts\`, {
+        let res = await fetch(\`\${cleanUrl}/rest/v1/test_attempts\`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -2299,6 +2300,25 @@ const htmlTemplate = `<!DOCTYPE html>
           },
           body: JSON.stringify(payload)
         });
+
+        // Fallback if column 'timestamp' has not been added to Supabase yet
+        if (!res.ok && res.status === 400) {
+          const errText = await res.clone().text();
+          if (errText.includes("'timestamp'")) {
+            const fallbackPayload = { ...payload };
+            delete fallbackPayload.timestamp;
+            res = await fetch(\`\${cleanUrl}/rest/v1/test_attempts\`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': SUPABASE_CONFIG.anonKey,
+                'Authorization': \`Bearer \${SUPABASE_CONFIG.anonKey}\`,
+                'Prefer': 'return=representation'
+              },
+              body: JSON.stringify(fallbackPayload)
+            });
+          }
+        }
         if (res.ok) {
           const data = await res.json();
           console.log('✓ Successfully recorded test attempt to Supabase:', data);
