@@ -1345,6 +1345,9 @@ const htmlTemplate = `<!DOCTYPE html>
         <button class="tool-btn" id="btn-fullscreen" title="Toggle Fullscreen">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
         </button>
+        <button class="tool-btn" id="btn-open-cloud-sync" title="Configure Supabase Cloud Sync">
+          <span>☁️ Database</span>
+        </button>
       </div>
 
       <!-- User Profile Badge -->
@@ -1579,6 +1582,47 @@ const htmlTemplate = `<!DOCTYPE html>
     </div>
   </div>
 
+  <!-- Supabase Cloud Sync Modal -->
+  <div class="modal-overlay" id="modal-cloud-sync">
+    <div class="modal-card" style="max-width: 580px;">
+      <div class="modal-header">
+        <div class="modal-title">Supabase Database API Keys</div>
+        <button class="modal-close-btn" data-close="modal-cloud-sync">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-bottom: 14px; font-size: 0.88rem; color: #475569; line-height: 1.5;">
+          Connect your Supabase project to automatically save candidate attempts, question answers, scores, and timestamps in real-time.
+        </p>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display: block; font-weight: 700; margin-bottom: 6px; font-size: 0.82rem; color: #1e293b;">
+            Supabase Project URL
+          </label>
+          <input type="text" id="input-supabase-url" placeholder="https://your-project.supabase.co" 
+            style="width: 100%; padding: 9px 12px; border: 1.5px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem; font-family: monospace; outline: none;">
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label style="display: block; font-weight: 700; margin-bottom: 6px; font-size: 0.82rem; color: #1e293b;">
+            Supabase Anon Public API Key
+          </label>
+          <input type="password" id="input-supabase-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." 
+            style="width: 100%; padding: 9px 12px; border: 1.5px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem; font-family: monospace; outline: none;">
+        </div>
+
+        <div id="supabase-status-message" style="display: none; padding: 10px 14px; border-radius: 6px; font-size: 0.84rem; margin-bottom: 12px;"></div>
+
+        <div style="font-size: 0.76rem; color: #64748b; background: #f8fafc; padding: 10px 12px; border-radius: 6px; border: 1px solid #e2e8f0; line-height: 1.5;">
+          💡 <strong>Where to find:</strong> Open Supabase Dashboard &rarr; <strong>Project Settings</strong> &rarr; <strong>API</strong> &rarr; Copy <em>Project URL</em> and <em>anon public key</em>.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-close="modal-cloud-sync">Close</button>
+        <button class="btn btn-save-next" id="btn-save-supabase-config">Save Credentials</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Result & Detailed Analytics Dashboard -->
   <div class="result-dashboard-wrapper" id="result-dashboard">
     <div class="result-header">
@@ -1677,6 +1721,13 @@ const htmlTemplate = `<!DOCTYPE html>
   <script>
     // Embedded JSON Mock Test Data
     const QUESTIONS = ${JSON.stringify(mockData)};
+
+    // Supabase API Configuration (saved in localStorage or via Cloud Sync button)
+    const SUPABASE_CONFIG = {
+      url: window.localStorage.getItem('toppersmock_supabase_url') || '',
+      anonKey: window.localStorage.getItem('toppersmock_supabase_key') || ''
+    };
+    const examStartTime = new Date();
 
     // State Variables
     const TOTAL_TIME = 60 * 60; // 60 minutes in seconds
@@ -2200,8 +2251,63 @@ const htmlTemplate = `<!DOCTYPE html>
       // Render Solutions
       renderSolutions('all');
 
+      // Auto-sync attempt to Supabase
+      sendAttemptToSupabase({
+        roll_number: '2401098421',
+        test_id: 'ssc_cgl_tier1_mock_1',
+        test_title: 'SSC CGL Tier-I (CBT) Full Mock Test 1',
+        total_questions: QUESTIONS.length,
+        total_attempted: totalAttempted,
+        total_correct: totalCorrect,
+        total_incorrect: totalIncorrect,
+        total_unattempted: unattempted,
+        total_score: parseFloat(totalScore.toFixed(2)),
+        accuracy_percentage: accuracy,
+        time_taken_seconds: TOTAL_TIME - timeRemaining,
+        started_at: examStartTime.toISOString(),
+        submitted_at: new Date().toISOString(),
+        section_breakdown: sectionResults.map(sr => ({
+          section_name: sr.section.name,
+          part_name: sr.section.partName,
+          total: sr.section.questions.length,
+          correct: sr.correct,
+          incorrect: sr.incorrect,
+          unattempted: sr.unattempted,
+          score: (sr.correct * 2) - (sr.incorrect * 0.5)
+        }))
+      });
+
       // Show Result Dashboard
       document.getElementById('result-dashboard').classList.add('active');
+    }
+
+    async function sendAttemptToSupabase(payload) {
+      if (!SUPABASE_CONFIG.url || !SUPABASE_CONFIG.anonKey) {
+        console.info('Supabase URL or Key not configured yet. Configure via the Cloud Sync button.');
+        return;
+      }
+      try {
+        const cleanUrl = SUPABASE_CONFIG.url.replace(/\\/$/, '');
+        const res = await fetch(\`\${cleanUrl}/rest/v1/test_attempts\`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SUPABASE_CONFIG.anonKey,
+            'Authorization': \`Bearer \${SUPABASE_CONFIG.anonKey}\`,
+            'Prefer': 'return=representation'
+          },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          console.log('✓ Successfully recorded test attempt to Supabase:', data);
+        } else {
+          const err = await res.text();
+          console.error('Supabase save error:', res.status, err);
+        }
+      } catch (err) {
+        console.error('Network error connecting to Supabase:', err);
+      }
     }
 
     // Solutions List Render
@@ -2363,6 +2469,32 @@ const htmlTemplate = `<!DOCTYPE html>
       document.getElementById('btn-open-question-paper').addEventListener('click', () => {
         renderQuestionPaperModal();
         document.getElementById('modal-question-paper').classList.add('active');
+      });
+
+      // Supabase Cloud Sync Modal
+      document.getElementById('btn-open-cloud-sync').addEventListener('click', () => {
+        document.getElementById('input-supabase-url').value = SUPABASE_CONFIG.url;
+        document.getElementById('input-supabase-key').value = SUPABASE_CONFIG.anonKey;
+        document.getElementById('supabase-status-message').style.display = 'none';
+        document.getElementById('modal-cloud-sync').classList.add('active');
+      });
+
+      document.getElementById('btn-save-supabase-config').addEventListener('click', () => {
+        const url = document.getElementById('input-supabase-url').value.trim();
+        const key = document.getElementById('input-supabase-key').value.trim();
+        SUPABASE_CONFIG.url = url;
+        SUPABASE_CONFIG.anonKey = key;
+        window.localStorage.setItem('toppersmock_supabase_url', url);
+        window.localStorage.setItem('toppersmock_supabase_key', key);
+
+        const msgEl = document.getElementById('supabase-status-message');
+        msgEl.style.display = 'block';
+        msgEl.style.background = '#dcfce7';
+        msgEl.style.color = '#15803d';
+        msgEl.innerHTML = '✓ Supabase credentials saved successfully!';
+        setTimeout(() => {
+          document.getElementById('modal-cloud-sync').classList.remove('active');
+        }, 1200);
       });
 
       // Modal Closers
