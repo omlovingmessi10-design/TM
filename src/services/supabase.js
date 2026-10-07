@@ -179,6 +179,43 @@ export const saveOrUpdateAttempt = async (attemptData) => {
 };
 
 /**
+ * Record Option Chosen and Time Taken in dedicated `user_responses` table
+ */
+export const recordUserResponse = async (responseData) => {
+  const client = getSupabase();
+  if (!client) return;
+
+  try {
+    const payload = {
+      attempt_id: String(responseData.attempt_id),
+      roll_number: responseData.roll_number || '2201048291',
+      candidate_name: responseData.candidate_name || 'ANKIT SHARMA',
+      test_id: responseData.test_id || 'ssc_cgl_tier1_mock_3',
+      question_number: Number(responseData.question_number),
+      section_name: responseData.section_name || '',
+      selected_option: responseData.selected_option || null,
+      time_taken_seconds: Number(responseData.time_taken_seconds || 0),
+      correct_option: responseData.correct_option || null,
+      is_correct: responseData.is_correct || false,
+      status: responseData.status || 'ANSWERED',
+      recorded_at: new Date().toISOString()
+    };
+
+    const { error } = await client
+      .from('user_responses')
+      .upsert(payload, { onConflict: 'attempt_id,question_number' });
+
+    if (error) {
+      console.warn('Failed to record in user_responses table:', error.message);
+    } else {
+      console.log(`✓ Saved to user_responses: Q${responseData.question_number} -> Option ${responseData.selected_option} in ${responseData.time_taken_seconds}s`);
+    }
+  } catch (err) {
+    console.error('Error saving to user_responses:', err);
+  }
+};
+
+/**
  * Record or Update Individual Question Answer and Time Spent
  */
 export const recordQuestionAnswer = async (attemptId, answerData) => {
@@ -206,6 +243,21 @@ export const recordQuestionAnswer = async (attemptId, answerData) => {
     if (error) {
       console.warn('Failed to record question answer in Supabase:', error.message);
     }
+
+    // Also sync to user_responses table
+    await recordUserResponse({
+      attempt_id: attemptId,
+      roll_number: answerData.roll_number,
+      candidate_name: answerData.candidate_name,
+      test_id: answerData.test_id,
+      question_number: answerData.question_number,
+      section_name: answerData.section_name,
+      selected_option: answerData.selected_option,
+      time_taken_seconds: answerData.time_spent_seconds,
+      correct_option: answerData.correct_option,
+      is_correct: answerData.is_correct,
+      status: answerData.status
+    });
   } catch (e) {
     console.error('Error recording answer:', e);
   }
@@ -257,6 +309,28 @@ export const submitFinalAttempt = async (attemptData, detailedAnswers = []) => {
         .upsert(answersPayload, { onConflict: 'attempt_id,question_number' });
 
       if (ansError) console.warn('Failed to batch save answers:', ansError.message);
+
+      // Batch upsert to user_responses table
+      const responsesPayload = detailedAnswers.map(ans => ({
+        attempt_id: String(attemptData.id),
+        roll_number: attemptData.roll_number || '2201048291',
+        candidate_name: attemptData.candidate_name || 'ANKIT SHARMA',
+        test_id: attemptData.test_id || 'ssc_cgl_tier1_mock_3',
+        question_number: Number(ans.question_number),
+        section_name: ans.section_name,
+        selected_option: ans.selected_option || null,
+        time_taken_seconds: Number(ans.time_spent_seconds || 0),
+        correct_option: ans.correct_option,
+        is_correct: ans.is_correct,
+        status: ans.status,
+        recorded_at: new Date().toISOString()
+      }));
+
+      const { error: respError } = await client
+        .from('user_responses')
+        .upsert(responsesPayload, { onConflict: 'attempt_id,question_number' });
+
+      if (respError) console.warn('Failed to batch save user_responses:', respError.message);
     }
 
     return { success: true };

@@ -99,11 +99,30 @@ CREATE TABLE IF NOT EXISTS public.test_attempt_answers (
 
 ALTER TABLE public.test_attempt_answers ADD COLUMN IF NOT EXISTS time_spent_seconds INTEGER DEFAULT 0;
 
+-- Create Table: user_responses (Dedicated table for option chosen and time taken)
+CREATE TABLE IF NOT EXISTS public.user_responses (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    attempt_id TEXT NOT NULL,
+    roll_number VARCHAR(50) NOT NULL DEFAULT '2201048291',
+    candidate_name VARCHAR(150) DEFAULT 'ANKIT SHARMA',
+    test_id VARCHAR(100) NOT NULL DEFAULT 'ssc_cgl_tier1_mock_3',
+    question_number INTEGER NOT NULL,
+    section_name VARCHAR(100) NOT NULL,
+    selected_option VARCHAR(10),
+    time_taken_seconds INTEGER NOT NULL DEFAULT 0,
+    correct_option VARCHAR(10),
+    is_correct BOOLEAN DEFAULT FALSE,
+    status VARCHAR(30) NOT NULL DEFAULT 'ANSWERED',
+    recorded_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    UNIQUE (attempt_id, question_number)
+);
+
 -- 6. Enable Row Level Security (RLS)
 ALTER TABLE public.mock_tests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.test_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.test_attempt_answers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_responses ENABLE ROW LEVEL SECURITY;
 
 -- 7. Configure RLS Policies
 DROP POLICY IF EXISTS "Allow public read of mock tests" ON public.mock_tests;
@@ -129,6 +148,15 @@ CREATE POLICY "Allow public read of answers" ON public.test_attempt_answers FOR 
 
 DROP POLICY IF EXISTS "Allow public update of answers" ON public.test_attempt_answers;
 CREATE POLICY "Allow public update of answers" ON public.test_attempt_answers FOR UPDATE TO public USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public insert of user_responses" ON public.user_responses;
+CREATE POLICY "Allow public insert of user_responses" ON public.user_responses FOR INSERT TO public WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public read of user_responses" ON public.user_responses;
+CREATE POLICY "Allow public read of user_responses" ON public.user_responses FOR SELECT TO public USING (true);
+
+DROP POLICY IF EXISTS "Allow public update of user_responses" ON public.user_responses;
+CREATE POLICY "Allow public update of user_responses" ON public.user_responses FOR UPDATE TO public USING (true) WITH CHECK (true);
 
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_test_attempts_status_user ON public.test_attempts (status, roll_number);

@@ -25,6 +25,7 @@ import {
   getInProgressAttempt,
   saveOrUpdateAttempt,
   recordQuestionAnswer,
+  recordUserResponse,
   submitFinalAttempt
 } from './services/supabase';
 
@@ -327,6 +328,25 @@ export default function App() {
         selectedOption: optKey
       }
     }));
+
+    // Record user choice and time spent immediately in user_responses table
+    const currentQData = questions.find(q => q.question_number === activeQuestionNumber);
+    const spentSec = questionStatuses[activeQuestionNumber]?.timeSpentSeconds || 0;
+    if (currentQData) {
+      recordUserResponse({
+        attempt_id: attemptId,
+        roll_number: candidate.rollNo,
+        candidate_name: candidate.name,
+        test_id: TEST_ID,
+        question_number: activeQuestionNumber,
+        section_name: currentQData.section_title,
+        selected_option: optKey,
+        time_taken_seconds: spentSec,
+        correct_option: currentQData.correct_option,
+        is_correct: optKey.toLowerCase() === (currentQData.correct_option || '').toLowerCase(),
+        status: STATUS.ANSWERED
+      });
+    }
   };
 
   // Save & Next
