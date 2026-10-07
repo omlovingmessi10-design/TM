@@ -26,6 +26,8 @@ import {
   saveOrUpdateAttempt,
   recordQuestionAnswer,
   recordUserResponse,
+  saveUserResponseInstant,
+  fetchUserResponsesFromDb,
   submitFinalAttempt
 } from './services/supabase';
 
@@ -42,10 +44,8 @@ export default function App() {
   // Questions (Mock Test 3 default)
   const [questions, setQuestions] = useState(() => getDefaultQuestions());
 
-  // Attempt UUID
-  const [attemptId, setAttemptId] = useState(() => {
-    return 'attempt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-  });
+  // Deterministic, persistent attempt ID so it ALWAYS maps to the same candidate & test across page refreshes
+  const attemptId = `attempt_${candidate.rollNo}_${TEST_ID}`;
 
   // Section Tracking (Strict Sectional Timing)
   const [activeSectionId, setActiveSectionId] = useState('gi');
@@ -64,6 +64,7 @@ export default function App() {
 
   const [isTimerRunning, setIsTimerRunning] = useState(true);
   const [language, setLanguage] = useState('en');
+  const [liveSyncMessage, setLiveSyncMessage] = useState(null);
 
   // Question Statuses and Time Spent state map:
   // { [qNum]: { status, selectedOption, timeSpentSeconds } }
@@ -99,22 +100,50 @@ export default function App() {
   const [isSynced, setIsSynced] = useState(true);
 
   // --------------------------------------------------------------------------
-  // Check for In-Progress Attempt on Startup (Supabase or Local)
+  // 1. INSTANT FETCH FROM SUPABASE ON PAGE LOAD / REFRESH
   // --------------------------------------------------------------------------
   useEffect(() => {
     let isMounted = true;
-    const checkForAttempt = async () => {
+    const loadSavedDataFromSupabase = async () => {
       try {
+        console.log('⚡ Fetching past responses from Supabase for attempt:', attemptId);
+        const savedResponses = await fetchUserResponsesFromDb(attemptId);
+        if (isMounted && savedResponses && Object.keys(savedResponses).length > 0) {
+          setQuestionStatuses((prev) => {
+            const updated = { ...prev };
+            let answeredCount = 0;
+            Object.entries(savedResponses).forEach(([qNumStr, resp]) => {
+              const qNum = Number(qNumStr);
+              if (updated[qNum]) {
+                const hasAns = Boolean(resp.selectedOption);
+                if (hasAns) answeredCount++;
+                updated[qNum] = {
+                  status: resp.status || (hasAns ? STATUS.ANSWERED : STATUS.NOT_ANSWERED),
+                  selectedOption: resp.selectedOption || null,
+                  timeSpentSeconds: resp.timeSpentSeconds || 0,
+                };
+              }
+            });
+            return updated;
+          });
+          setLiveSyncMessage(`⚡ Restored ${Object.keys(savedResponses).length} responses from Supabase!`);
+          setTimeout(() => setLiveSyncMessage(null), 4000);
+        }
+
+        // Also check if in-progress session metadata exists
         const attempt = await getInProgressAttempt(TEST_ID, candidate.rollNo);
         if (isMounted && attempt && attempt.status === 'in_progress') {
-          setDetectedPastAttempt(attempt);
-          setIsResumeModalOpen(true);
+          if (attempt.current_section_id) setActiveSectionId(attempt.current_section_id);
+          if (attempt.current_question_number) setActiveQuestionNumber(attempt.current_question_number);
+          if (attempt.completed_sections) setCompletedSections(attempt.completed_sections);
+          if (attempt.sectional_time_left) setSectionalTimeLeft(attempt.sectional_time_left);
         }
-      } catch (e) {
-        console.warn('Check attempt error:', e);
+      } catch (err) {
+        console.warn('Startup sync warning:', err);
       }
     };
-    checkForAttempt();
+
+    loadSavedDataFromSupabase();
     return () => { isMounted = false; };
   }, []);
 
@@ -318,9 +347,12 @@ export default function App() {
   }, [isTimerRunning, attemptId, activeSectionId, activeQuestionNumber, questionStatuses, sectionalTimeLeft, completedSections]);
 
   // --------------------------------------------------------------------------
-  // Question Actions & State Updates
+  // Question Actions & State Updates (Instant Supabase Sync on Every Click)
   // --------------------------------------------------------------------------
-  const handleSelectOption = (optKey) => {
+  const handleSelectOption = async (optKey) => {
+    const currentQData = questions.find(q => q.question_number === activeQuestionNumber);
+    const spentSec = questionStatuses[activeQuestionNumber]?.timeSpentSeconds || 0;
+
     setQuestionStatuses((prev) => ({
       ...prev,
       [activeQuestionNumber]: {
@@ -329,11 +361,9 @@ export default function App() {
       }
     }));
 
-    // Record user choice and time spent immediately in user_responses table
-    const currentQData = questions.find(q => q.question_number === activeQuestionNumber);
-    const spentSec = questionStatuses[activeQuestionNumber]?.timeSpentSeconds || 0;
     if (currentQData) {
-      recordUserResponse({
+      setLiveSyncMessage(`⚡ Syncing Q${activeQuestionNumber} -> Option ${optKey.toUpperCase()}...`);
+      const res = await saveUserResponseInstant({
         attempt_id: attemptId,
         roll_number: candidate.rollNo,
         candidate_name: candidate.name,
@@ -346,12 +376,18 @@ export default function App() {
         is_correct: optKey.toLowerCase() === (currentQData.correct_option || '').toLowerCase(),
         status: STATUS.ANSWERED
       });
+      if (res && res.success) {
+        setLiveSyncMessage(`✓ Supabase Synced: Q${activeQuestionNumber} -> Option ${optKey.toUpperCase()} in ${spentSec}s`);
+        setTimeout(() => setLiveSyncMessage(null), 3500);
+      }
     }
   };
 
   // Save & Next
-  const handleSaveAndNext = () => {
+  const handleSaveAndNext = async () => {
     const currentSelected = questionStatuses[activeQuestionNumber]?.selectedOption;
+    const currentQData = questions.find(q => q.question_number === activeQuestionNumber);
+    const spentSec = questionStatuses[activeQuestionNumber]?.timeSpentSeconds || 0;
 
     setQuestionStatuses((prev) => {
       const newStatus = currentSelected ? STATUS.ANSWERED : STATUS.NOT_ANSWERED;
@@ -364,6 +400,22 @@ export default function App() {
         }
       };
     });
+
+    if (currentQData && currentSelected) {
+      await saveUserResponseInstant({
+        attempt_id: attemptId,
+        roll_number: candidate.rollNo,
+        candidate_name: candidate.name,
+        test_id: TEST_ID,
+        question_number: activeQuestionNumber,
+        section_name: currentQData.section_title,
+        selected_option: currentSelected,
+        time_taken_seconds: spentSec,
+        correct_option: currentQData.correct_option,
+        is_correct: currentSelected.toLowerCase() === (currentQData.correct_option || '').toLowerCase(),
+        status: STATUS.ANSWERED
+      });
+    }
 
     // Navigation constrained to CURRENT SECTION
     const maxQInSection = currentSection.endIndex + 1;
@@ -380,7 +432,6 @@ export default function App() {
       });
       setActiveQuestionNumber(nextQNum);
     } else {
-      // Reached end of current section: prompt section submit
       setIsEarlySubmitOpen(true);
     }
 
@@ -388,20 +439,36 @@ export default function App() {
   };
 
   // Mark for Review & Next
-  const handleMarkForReviewAndNext = () => {
+  const handleMarkForReviewAndNext = async () => {
     const currentSelected = questionStatuses[activeQuestionNumber]?.selectedOption;
+    const currentQData = questions.find(q => q.question_number === activeQuestionNumber);
+    const spentSec = questionStatuses[activeQuestionNumber]?.timeSpentSeconds || 0;
+    const newStatus = currentSelected ? STATUS.ANSWERED_AND_MARKED : STATUS.MARKED_FOR_REVIEW;
 
-    setQuestionStatuses((prev) => {
-      const newStatus = currentSelected ? STATUS.ANSWERED_AND_MARKED : STATUS.MARKED_FOR_REVIEW;
-      return {
-        ...prev,
-        [activeQuestionNumber]: {
-          ...prev[activeQuestionNumber],
-          status: newStatus,
-          selectedOption: currentSelected || null
-        }
-      };
-    });
+    setQuestionStatuses((prev) => ({
+      ...prev,
+      [activeQuestionNumber]: {
+        ...prev[activeQuestionNumber],
+        status: newStatus,
+        selectedOption: currentSelected || null
+      }
+    }));
+
+    if (currentQData) {
+      await saveUserResponseInstant({
+        attempt_id: attemptId,
+        roll_number: candidate.rollNo,
+        candidate_name: candidate.name,
+        test_id: TEST_ID,
+        question_number: activeQuestionNumber,
+        section_name: currentQData.section_title,
+        selected_option: currentSelected || null,
+        time_taken_seconds: spentSec,
+        correct_option: currentQData.correct_option,
+        is_correct: currentSelected ? currentSelected.toLowerCase() === (currentQData.correct_option || '').toLowerCase() : false,
+        status: newStatus
+      });
+    }
 
     const maxQInSection = currentSection.endIndex + 1;
     if (activeQuestionNumber < maxQInSection) {
@@ -424,7 +491,10 @@ export default function App() {
   };
 
   // Clear Response
-  const handleClearResponse = () => {
+  const handleClearResponse = async () => {
+    const currentQData = questions.find(q => q.question_number === activeQuestionNumber);
+    const spentSec = questionStatuses[activeQuestionNumber]?.timeSpentSeconds || 0;
+
     setQuestionStatuses((prev) => ({
       ...prev,
       [activeQuestionNumber]: {
@@ -433,6 +503,26 @@ export default function App() {
         selectedOption: null
       }
     }));
+
+    if (currentQData) {
+      setLiveSyncMessage(`⚡ Clearing Q${activeQuestionNumber} in Supabase...`);
+      await saveUserResponseInstant({
+        attempt_id: attemptId,
+        roll_number: candidate.rollNo,
+        candidate_name: candidate.name,
+        test_id: TEST_ID,
+        question_number: activeQuestionNumber,
+        section_name: currentQData.section_title,
+        selected_option: null,
+        time_taken_seconds: spentSec,
+        correct_option: currentQData.correct_option,
+        is_correct: false,
+        status: STATUS.NOT_ANSWERED
+      });
+      setLiveSyncMessage(`✓ Cleared Q${activeQuestionNumber} in Supabase`);
+      setTimeout(() => setLiveSyncMessage(null), 3000);
+    }
+
     syncToBackend();
   };
 
@@ -623,6 +713,17 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Live Supabase Sync Notification Banner */}
+      {liveSyncMessage && (
+        <div className="bg-emerald-600 text-white text-xs font-semibold px-4 py-1 flex items-center justify-between shadow-xs transition-all">
+          <span className="flex items-center space-x-1.5">
+            <span className="w-2 h-2 rounded-full bg-white animate-ping mr-1"></span>
+            <span>{liveSyncMessage}</span>
+          </span>
+          <span className="text-[10px] text-emerald-100 uppercase font-mono">Live Database Connected</span>
+        </div>
+      )}
 
       {/* 2. Main Content Area (Two-Column Layout) */}
       <main className="flex-1 flex flex-col md:flex-row overflow-hidden relative" style={{ height: 'calc(100vh - 85px)' }}>

@@ -10,18 +10,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700&family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" crossorigin href="./assets/index.css">
+    <script type="module" crossorigin src="./assets/bundle.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/bundle.css">
   </head>
   <body class="bg-[#f0f3f6] text-[#222] select-none antialiased min-h-screen">
     <div id="root"></div>
     <!-- Universal Module Loader: works on Live Server, file://, static hosting, AND Vite dev server -->
-    <script type="module">
-      const isViteDev = window.location.port === '5173';
-      if (isViteDev) {
-        import('/src/main.jsx').catch(() => import('./assets/index.js'));
-      } else {
-        import('./assets/index.js');
-      }
-    </script>
   </body>
 </html>
