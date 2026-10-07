@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased text-gray-800 bg-[#f4f6f9] font-sans;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+
+/* Custom scrollbars for question area and palette */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* TCS iON Authentic Button Shapes & Badges */
+.tcs-badge-answered {
+  background-color: #28a745;
+  color: #ffffff;
+  clip-path: polygon(0% 0%, 100% 0%, 100% 75%, 50% 100%, 0% 75%);
+}
+
+.tcs-badge-not-answered {
+  background-color: #e34f40;
+  color: #ffffff;
+  clip-path: polygon(50% 0%, 100% 25%, 100% 100%, 0% 100%, 0% 25%);
+}
+
+.tcs-badge-not-visited {
+  background-color: #f8fafc;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+}
+
+.tcs-badge-marked {
+  background-color: #7c3aed;
+  color: #ffffff;
+  border-radius: 50%;
+}
+
+.tcs-badge-marked-answered {
+  background-color: #7c3aed;
+  color: #ffffff;
+  border-radius: 50%;
+  position: relative;
+}
+
+/* Question Option Radio Styling */
+.radio-custom {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #94a3b8;
+  border-radius: 50%;
+  outline: none;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+  display: grid;
+  place-content: center;
+}
+
+.radio-custom:checked {
+  border-color: #2563eb;
+}
+
+.radio-custom:checked::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: #2563eb;
+}
